@@ -1,0 +1,47 @@
+name: Deploy to Yandex Cloud VM
+
+on:
+  push:
+    branches: [ main ]  # Триггер запуска джоба при пуш в main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Забрать код из репозитория
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Шаг 2: Логин в Yandex Container Registry
+      - name: Login to Yandex CR
+        run: |
+          echo "${{ secrets.YC_DOCKER_PASSWORD }}" | docker login \
+            --username iam \
+            --password-stdin \
+            cr.yandex
+
+      # Шаг 3: Сборка и публикация Docker-образа
+      - name: Build and push
+        run: |
+          docker build -t cr.yandex/crpunnjs0jm4jhoci960/my-app:latest .
+          docker push cr.yandex/crpunnjs0jm4jhoci960/my-app:latest
+
+      # Шаг 4: Деплой на VM через SSH
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.YC_VM_IP }}
+          username: ${{ secrets.YC_VM_USER }}
+          key: ${{ secrets.YC_VM_SSH_KEY }}
+          script: |
+            # Останавливаем старый контейнер (если есть)
+            docker stop my-app || true
+            docker rm my-app || true
+
+            # Запускаем новый
+            docker pull cr.yandex/crpunnjs0jm4jhoci960/my-app:latest
+            docker run -d \
+              --name my-app \
+              -p 80:8000 \  # Проброс портов
+              cr.yandex/crpunnjs0jm4jhoci960/my-app:latest
